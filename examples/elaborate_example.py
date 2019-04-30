@@ -49,13 +49,12 @@ import os
 import random
 
 from time import sleep
-
 from argparse import ArgumentParser
 
 from autotrail import TrailServer, TrailClient, Step, interactive, StatusField
-from autotrail.helpers.io import InteractiveTrail
-from autotrail.helpers.step import extraction_wrapper, accepts_nothing, create_conditional_step
 from autotrail.helpers.context import threadsafe_class
+from autotrail.helpers.io import InteractiveTrail
+from autotrail.helpers.step import accepts_nothing, create_conditional_step, extraction_wrapper
 
 
 logging.basicConfig(filename=os.path.join('/', 'tmp', 'example_trail.log'), level=logging.DEBUG)
@@ -109,8 +108,8 @@ class BranchChoice(object):
 # because all its parents would not have succeeded.
 # Therefore, to achieve branching, when a step fails, we can ask AutoTrail to skip all its progeny. Such steps
 # behave like conditional steps. This is done by setting the attribute Step.skip_progeny_on_failure to True.
-# A step in the branch we don't want to run can raise an exception. We are using this exception as an examle but it can
-# be any exception.
+# A step in the branch we don't want to run can raise an exception of any type.
+# We are using this exception as an example.
 # We need to know before-hand, which steps are used for conditional branching and set the attribute.
 # This is explained later in the example.
 class BranchNotChosen(Exception):
@@ -156,8 +155,8 @@ def simply_retry(func, retry_on, max_tries=5, delay=1, *args, **kwargs):
 
 # When get_angry is called, it is going to raise the MildlyIrritated exception twice.
 # If it is called again, it will either raise Exasperated or Fuming (by random choice).
-# This is to express a retyable exception (MildlyIrritated) and non-retryable ones (Exasperated and Fuming).
-# AutoTrail handles this transparently and expressing these ideas are very easy. It will be explained later when this
+# This is to express a retryable exception (MildlyIrritated) and non-retryable ones (Exasperated and Fuming).
+# AutoTrail handles this transparently and expressing these ideas is very easy. It will be explained later when this
 # function is wrapped into a Step.
 ANGER_BUCKET = [MildlyIrritated('I am a bit irritated.')] * 2
 def get_angry():
@@ -170,12 +169,12 @@ def get_angry():
 # Each action function (contained in a Step), accepts two parameters in the raw form: TrailEnvironment and context.
 # 1. TrailEnvironment is passed by AutoTrail to aid communication with the end-user and any future feature additions
 #    that we might want to be made available to steps. This is at a framework level.
-# 2. context object is as defined by the developer. This is specific to this workflow and we have defined it above
+# 2. context object as defined by the developer. This is specific to this workflow and we have defined it above
 #    as the Context class. If this is not present, then None is passed explicitly.
 #
 # However, writing functions which don't need these but retain these parameters in their signature is ugly and
-# unintuitive. @accepts_nothing is a decorator that takes care of this and as the name suggests, this function accepts
-# neither paramter.
+# counter-intuitive. @accepts_nothing is a decorator that takes care of this and as the name suggests, this function
+# accepts neither paramter.
 # Using such decorators allow the functions to retain a readable signature of the function.
 @accepts_nothing
 def starting_point():

@@ -10,9 +10,11 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the speci
 limitations under the License.
 """
 
+import json
 import logging
-
 from collections import namedtuple
+
+from six import iteritems
 
 from autotrail.core.dag import Step, topological_traverse
 from autotrail.core.socket_communication import HandlerResult
@@ -57,6 +59,7 @@ class StatusField(object):
     """Namespace for the fields returned as part of the status API call. Use this class instead of plain strings."""
     N = 'n'
     NAME = 'Name'
+    TAGS = 'Tags'
     STATE = 'State'
     RETURN_VALUE = 'Return value'
     OUTPUT_MESSAGES = 'Output messages'
@@ -75,7 +78,7 @@ def get_class_globals(klass):
     Returns:
     set -- of the class globals.
     """
-    return {getattr(klass, attribute) for attribute in dir(klass) if not attribute.startswith('_') and attribute.isupper()}
+    return {getattr(klass, attr) for attr in dir(klass) if not attr.startswith('_') and attr.isupper()}
 
 
 def validate_states(states):
@@ -253,8 +256,16 @@ def step_to_stepstatus(step, status_fields):
     }
     if StatusField.STATE in status_fields:
         step_status[StatusField.STATE] = step.state
+    if StatusField.TAGS in status_fields:
+        step_status[StatusField.TAGS] = step.tags
     if StatusField.RETURN_VALUE in status_fields:
-        step_status[StatusField.RETURN_VALUE] = step.return_value
+        # Ensure we pass a serializable return value
+        try:
+            json.dumps(step.return_value)
+            return_value = step.return_value
+        except TypeError:
+            return_value = str(step.return_value)
+        step_status[StatusField.RETURN_VALUE] = return_value
     if StatusField.OUTPUT_MESSAGES in status_fields:
         step_status[StatusField.OUTPUT_MESSAGES] = step.output_messages
     if StatusField.PROMPT_MESSAGES in status_fields:
@@ -463,7 +474,7 @@ API_CALL_DEFINITIONS = {
         validators={
             APICallField.TAGS: validate_mapping,
             APICallField.DRY_RUN: validate_boolean},
-        steps=lambda steps, api_call:search_steps_with_states(
+        steps=lambda steps, api_call: search_steps_with_states(
             search_steps_with_tags(steps, api_call[APICallField.TAGS]),
             [Step.READY, Step.WAIT]),
         predicate=lambda steps, api_call: not api_call[APICallField.DRY_RUN],
@@ -522,7 +533,7 @@ API_CALL_DEFINITIONS = {
             APICallField.DRY_RUN: validate_boolean},
         steps=lambda steps, api_call: search_steps_with_states(
             search_steps_with_tags(steps, api_call[APICallField.TAGS]),
-            [Step.READY, Step.WAIT, Step.TOPAUSE, Step.PAUSED, Step.PAUSED_ON_FAIL]),
+            [Step.READY, Step.WAIT, Step.TOPAUSE, Step.PAUSED, Step.PAUSED_ON_FAIL, Step.INTERRUPTED]),
         predicate=lambda steps, api_call: not api_call[APICallField.DRY_RUN],
         handlers=[lambda steps, api_call: change_attribute(steps, attribute='state', value=Step.TOBLOCK)],
         post_processor=lambda steps, api_call, return_value: (list(extract_essential_tags(steps)), None, True),
@@ -623,7 +634,7 @@ def validate_api_call(api_call, api_call_definition):
     if api_call_definition is None:
         return 'API name {} is invalid.'.format(api_call.get(APICallField.NAME))
 
-    for field, validator in api_call_definition.validators.iteritems():
+    for field, validator in iteritems(api_call_definition.validators):
         try:
             value = api_call.get(field)
             validator(value)
@@ -710,6 +721,6 @@ def is_dict_subset_of(sub_dict, super_dict):
     True  -- If all the key-value pairs of sub_dict are present in the super_dict.
     False -- Otherwise.
     """
-    sub_set = set(sub_dict.iteritems())
-    super_set = set(super_dict.iteritems())
+    sub_set = set(iteritems(sub_dict))
+    super_set = set(iteritems(super_dict))
     return sub_set.issubset(super_set)

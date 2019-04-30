@@ -24,11 +24,12 @@ from collections import namedtuple
 from functools import partial
 from multiprocessing import Process
 from multiprocessing import Queue as ProcessQueue
-from Queue import Empty as QueueEmpty
 from socket import SHUT_RDWR
 from time import sleep
 
-from api import get_progeny, handle_api_call, log_step, search_steps_with_states
+from six.moves.queue import Empty as QueueEmpty
+
+from .api import get_progeny, handle_api_call, log_step, search_steps_with_states
 from autotrail.core.dag import is_dag_acyclic, Step, topological_traverse, topological_while
 from autotrail.core.socket_communication import serve_socket
 
@@ -49,7 +50,7 @@ class CyclicException(AutoTrailException):
 StepResult = namedtuple('StepResult', ['result', 'return_value'])
 
 
-def step_manager(step, trail_environment, context):
+def step_manager(step, args, kwargs):
     """Manage the running of a step.
 
     This function is meant to be run in either a separate thread or process, hence return value is found in the
@@ -65,20 +66,18 @@ def step_manager(step, trail_environment, context):
     """
     try:
         log_step(logging.debug, step, 'Starting run.')
-        return_value = step.action_function(trail_environment, context)
+        return_value = step.action_function(*args, **kwargs)
         step_result = StepResult(result=step.SUCCESS, return_value=return_value)
         log_step(logging.info, step, 'Run successful. Return value: {}.'.format(str(return_value)))
     except Exception as e:
         log_step(logging.exception, step,
                  'Exception encountered when running the step. Error message: {}.'.format(str(e)))
-        if step.pause_on_fail:
-            step_result = StepResult(result=step.PAUSED_ON_FAIL, return_value=str(e))
-        else:
-            step_result = StepResult(result=step.FAILURE, return_value=str(e))
+        step_result = StepResult(result=step.FAILURE, return_value=e)
+
     step.result_queue.put(step_result)
 
 
-def run_step(step, context):
+def run_step(step):
     """Run a given step.
 
     1. Starts a process to run the next step.
@@ -97,33 +96,57 @@ def run_step(step, context):
     step.prompt_messages = []
     step.input_messages = []
     step.return_value = None
+    step.environment = TrailEnvironment(step.prompt_queue, step.input_queue, step.output_queue)
 
-    trail_environment = TrailEnvironment(step.prompt_queue, step.input_queue, step.output_queue)
-    step.process = Process(target=step_manager, args=(step, trail_environment, context))
-    log_step(logging.debug, step, 'Starting subprocess to run step.')
-    step.process.start()
-    step.state = step.RUN
+    try:
+        args, kwargs = step.pre_processor(step.environment, step.context)
+        step.process = Process(target=step_manager, args=(step, args, kwargs))
+        log_step(logging.debug, step, 'Starting subprocess to run step.')
+        step.process.start()
+        step.state = step.RUN
+    except Exception as e:
+        step.state = step.FAILURE
+        step.return_value = e
 
 
 def check_running_step(step):
     """Check if the step has completed by trying to obtain its result."""
     try:
         step_result = step.result_queue.get_nowait()
-        # Step has completed, reap it.
         step.state = step_result.result
         step.return_value = step_result.return_value
-        log_step(logging.debug, step,
-                 'Step has completed. Changed state to: {}. Setting return value to: {}'.format(
-                    step.state, step.return_value))
-
-        if step.skip_progeny_on_failure and step.state == step.FAILURE:
-            skip_progeny(step)
     except QueueEmpty:
         # Step is still running and hasn't returned any results, hence do nothing.
         pass
     finally:
         collect_output_messages_from_step(step)
         collect_prompt_messages_from_step(step)
+
+    if step.state == step.SUCCESS:
+        try:
+            step.return_value = step.post_processor(step.environment, step.context, step.return_value)
+            log_step(logging.debug, step,
+                     'Step has succeeded. Changed state to: {}. Setting return value to: {}'.format(
+                         step.state, step.return_value))
+        except Exception as e:
+            step.state = step.FAILURE
+            step.return_value = e
+
+    if step.state in step.FAILURE:
+        if step.pause_on_fail:
+            step.state = step.PAUSED_ON_FAIL
+
+        if step.skip_progeny_on_failure:
+            skip_progeny(step)
+
+        try:
+            step.return_value = step.failure_handler(step.environment, step.context, step.return_value)
+        except Exception as e:
+            step.return_value = e
+
+        log_step(logging.debug, step,
+                 'Step has failed. Changed state to: {}. Setting return value to: {}'.format(
+                     step.state, step.return_value))
 
 
 DONE_STATES = [
@@ -144,14 +167,14 @@ STATE_TRANSITIONS = {
     # Mapping expressing state to the corresponding transition functions.
     # These functions produce side-effects by changing the state of the steps that are passed to them (if necessary).
     Step.WAIT           : run_step,
-    Step.RUN            : lambda step, context: check_running_step(step),
-    Step.TOSKIP         : lambda step, context: setattr(step, 'state', Step.SKIPPED),
-    Step.TOPAUSE        : lambda step, context: setattr(step, 'state', Step.PAUSED),
-    Step.TOBLOCK        : lambda step, context: setattr(step, 'state', Step.BLOCKED),
+    Step.RUN            : check_running_step,
+    Step.TOSKIP         : lambda step: setattr(step, 'state', Step.SKIPPED),
+    Step.TOPAUSE        : lambda step: setattr(step, 'state', Step.PAUSED),
+    Step.TOBLOCK        : lambda step: setattr(step, 'state', Step.BLOCKED),
 }
 
 
-def trail_manager(root_step, api_socket, backup, delay=5, context=None, done_states=DONE_STATES,
+def trail_manager(root_step, api_socket, backup, delay=5, done_states=DONE_STATES,
                   ignore_states=IGNORE_STATES, state_transitions=STATE_TRANSITIONS):
     """Manage a trail.
 
@@ -179,14 +202,13 @@ def trail_manager(root_step, api_socket, backup, delay=5, context=None, done_sta
                          iterates over the steps it is keeping track of.
                          It is also the delay with which it checks for any API calls.
                          Having a long delay will make the trail less responsive to API calls.
-    context           -- Any object that needs to be passed to the action functions as an argument when they are run.
     done_states       -- A list of step states that are considered to be "done". If a step is found in this state, it
                          can be considered to have been run.
     ignore_states     -- A list of step states that will be ignored. A step in these states cannot be traversed over,
                          i.e., all downstream steps will be out of traversal and will never be reached (case when a
                          step has failed etc).
     state_transitions -- A mapping of step states to functions that will be called if a step is found in that state.
-                         These functions will be called with 2 parameters - the step and context. Their return value is
+                         These functions will be called with 1 parameter - the step. Their return value is
                          ignored. These functions can produce side effects by altering the state of the step if needed.
 
     Responsibilities of the manager include:
@@ -222,7 +244,7 @@ def trail_manager(root_step, api_socket, backup, delay=5, context=None, done_sta
 
         step = next(step_iterator, None)
         if step and step.state in state_transitions:
-            state_transitions[step.state](step, context)
+            state_transitions[step.state](step)
 
         backup(root_step)
         sleep(delay)

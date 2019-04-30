@@ -94,11 +94,44 @@ class Step(Vertex):
     TOBLOCK = 'To Block'
     TOPAUSE = 'To Pause'
 
-    def __init__(self, action_function, **tags):
+    def __init__(self, action_function, pre_processor=lambda env, context: ((env, context), {}),
+                 post_processor=lambda env, context, return_value: return_value,
+                 failure_handler=lambda env, context, exception: exception, **tags):
+        """Initialize a Step.
+
+        Arguments:
+        action_function -- The callable of the step that will be run.
+        pre_processor   -- A callable to do pre-processing. This callable needs to meet the following specification:
+                           Accept: TrailEnvironment, context object.
+                           Return: A tuple of args and kwargs. These will be used to call the action_function as
+                                   action_function(*args, **kwargs).
+                           By default, this does nothing and calls the action function with environment and context.
+        post_processor  -- A callable to do post-processing. This callable needs to meet the following specification:
+                           Accept: TrailEnvironment, context object and the value returned by the action_function.
+                           Return: Any value. This value will be considered the return value of the step.
+                           By default, this does nothing and returns the value returned by the action_function.
+        failure_handler -- A callable to handle any exception raised during the call to the action_function.
+                           This callable needs to meet the following specification:
+                           Accept: TrailEnvironment, context object, exception.
+                           Return: Any value. This value will be considered the return value of the step.
+        tags            -- Any key-value pairs to associate with the step.
+        """
         super(Step, self).__init__()
+
+        # This function will be called before the sub-process to run the step will be called.
+        # This is blocking and therefore should be lightweight.
+        self.pre_processor = pre_processor
 
         # This is the action function that will be executed when the Step is run.
         self.action_function = action_function
+
+        # This function will be called after the sub-process to run the step finishes.
+        # This is blocking and therefore should be lightweight.
+        self.post_processor = post_processor
+
+        # This function will be called if the call to the action_function raises an exception.
+        # This is blocking and therefore should be lightweight.
+        self.failure_handler = failure_handler
 
         # All automatic and user-defined tags are stored in this attribute.
         # 'n' is a guaranteed unique attribute ie., no two Steps will have the same value for the 'n' tag.
@@ -107,6 +140,10 @@ class Step(Vertex):
         # Automaticaly assign a name if none was explicitly provided by the user.
         if 'name' not in tags:
             self.tags['name'] = self._make_name()
+
+        # Attributes that are passed to the pre_processor and post_processor.
+        self.environment = None
+        self.context = None
 
         # The default state every Step is in.
         self.state = self.READY
@@ -161,8 +198,8 @@ class Step(Vertex):
         return self.tags['name']
 
     def _make_name(self):
-        if hasattr(self.action_function, 'func_name'):
-            return self.action_function.func_name
+        if hasattr(self.action_function, '__name__'):
+            return self.action_function.__name__
         else:
             return str(self.action_function)
 

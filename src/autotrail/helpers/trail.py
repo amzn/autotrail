@@ -198,7 +198,7 @@ def monitor_trail(trail_client, status_filter_handler_pairs, status_kwargs=None,
         pre_processor=lambda history: diff_lists(list(history)[-2:]),
         filter_handler_pairs=status_filter_handler_pairs,
         delay=delay,
-        history_limit=max_tries+1)
+        history_limit=max_tries + 1)
 
 
 def search_for_any_element(iterable_a, iterable_b):

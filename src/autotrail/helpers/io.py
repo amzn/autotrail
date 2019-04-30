@@ -20,6 +20,8 @@ from __future__ import print_function
 import re
 import sys
 
+from six import iteritems
+
 from autotrail.core.dag import topological_traverse
 from autotrail.layer1.api import StatusField
 
@@ -153,7 +155,7 @@ def print_affected_steps(method_name, affected_steps, dry_run, to):
     print('  Mode: {}'.format('Dry Run' if dry_run else 'Actual Run'), file=to)
     print('  List of step names that are affected:', file=to)
     for step_tags in affected_steps:
-        print ('    # {} - {}'.format(step_tags['n'], step_tags['name']), file=to)
+        print('    # {} - {}'.format(step_tags['n'], step_tags['name']), file=to)
 
 
 def print_step_list(steps_tags, to):
@@ -174,7 +176,7 @@ def print_step_list(steps_tags, to):
     for step_tags in steps_tags:
         print('- Name: {}'.format(step_tags['name']), file=to)
         print('  n: {}'.format(step_tags['n']), file=to)
-        for key, value in step_tags.iteritems():
+        for key, value in iteritems(step_tags):
             if key in ['name', 'n']:
                 continue
             print('  {key}: {value}'.format(key=key, value=value), file=to)
@@ -279,19 +281,19 @@ class InteractiveTrail(object):
         printer = lambda result: self.affected_steps_printer('start', result, False, self.stdout)
         self._call_trail_client_method('start', printer)
 
-    def stop(self, interrupt=False):
-        """Send mesage to stop the run of a trail.
-        This is achieved by calling 'block' on all the steps.
-        If interrupt is True, then the 'interrupt' method is called as well.
+    def stop(self, dry_run=True):
+        """Send mesage to stop the run of a trail by blocking all steps. Running steps will be interrupted before being
+        blocked.
+        This is achieved by calling 'interrupt' followed by 'block' on all the steps.
 
         Keyword Arguments:
-        interrupt  -- If True, then this will interrupt any running steps.
+        dry_run=True -- Results in a list of steps that will be interrupted.
 
         Prints:
-        To STDOUT  -- The 'name' and 'n' tags of steps that were affected.
+        To STDOUT  -- The 'name' and 'n' tags of steps that were interrupted.
         """
         printer = lambda result: self.affected_steps_printer('stop', result, False, self.stdout)
-        self._call_trail_client_method('stop', printer, interrupt=interrupt)
+        self._call_trail_client_method('stop', printer, dry_run=dry_run)
 
     def shutdown(self, dry_run=True):
         """Send message to shutdown the trail server. After this call, no other API calls can be served.
@@ -683,7 +685,7 @@ def create_namespaces_for_tag_keys_and_values(root_step):
     keys = []
     values = []
     for step in topological_traverse(root_step):
-        for key, value in step.tags.iteritems():
+        for key, value in iteritems(step.tags):
             # Exclude the 'n' tag, which is an integer.
             if key != 'n':
                 keys.append(key)

@@ -81,8 +81,11 @@ class TrailServer(object):
         self.started = False
         self.timeout = timeout
         self.backlog_count = backlog_count
-        self.trail_process = None # Will point to the trail process only in threaded mode.
+        self.trail_process = None  # Will point to the trail process only in threaded mode.
         self.delay = delay
+
+        for step in topological_traverse(self.root_step):
+            step.context = self.context
 
         if not dag_file:
             self.dag_file = mktemp(prefix='autotrail.')
@@ -106,8 +109,8 @@ class TrailServer(object):
                                             '<action function name>': {
                                                 StatusField.STATE: <State of the step as an attribute of the Step class
                                                                     eg., Step.WAIT, Step.SUCCESS>,
-                                                StatusField.RETURN_VALUE: <The string representation of the return value of
-                                                                           the step.>,
+                                                StatusField.RETURN_VALUE: <The string representation of the return value
+                                                                           of the step.>,
                                                 StatusField.PROMPT_MESSAGES: <Prompt messages from the step>,
                                                 StatusField.OUTPUT_MESSAGES:<Output messages from the step>,
                                                 StatusField.INPUT_MESSAGES: <Input messages sent to the step>,
@@ -150,10 +153,10 @@ class TrailServer(object):
             self.trail_process = Process(
                 target=sigint_resistant_function,
                 args=(trail_manager, self.root_step, self.api_socket, backup_function),
-                kwargs=dict(context=self.context, delay=self.delay))
+                kwargs=dict(delay=self.delay))
             self.trail_process.start()
         else:
-            trail_manager(self.root_step, self.api_socket, backup_function, context=self.context, delay=self.delay)
+            trail_manager(self.root_step, self.api_socket, backup_function, delay=self.delay)
 
 
 class TrailClientError(Exception):
@@ -210,23 +213,22 @@ class TrailClient(object):
             APICallField.NAME: APICallName.START,
             APICallField.DRY_RUN: False})
 
-    def stop(self, interrupt=False):
-        """Send mesage to stop the run of a trail.
-        This is achieved by calling 'block' on all the steps.
-        If interrupt is True, then the 'interrupt' method is called as well.
+    def stop(self, dry_run=True):
+        """Send mesage to stop the run of a trail by blocking all steps. Running steps will be interrupted before being
+        blocked.
+        This is achieved by calling 'interrupt' followed by 'block' on all the steps.
 
         Keyword Arguments:
-        interrupt -- If True, then this will interrupt any running steps.
+        dry_run=True -- Results in a list of steps that will be interrupted.
 
         Returns:
-        List of dictionaries (tags) of steps that were affected by the block API call.
+        List of dictionaries (tags) of steps that were interrupted.
         This list will contain only the 'n' and 'name' tags of the steps affected.
         """
-        # If the user wants it, kill all the running steps
-        if interrupt:
-            self.interrupt(dry_run=False)
-
-        return self.block(dry_run=False)
+        # Interrupt first, so that block can act on the interupted steps.
+        affected_steps = self.interrupt(dry_run=dry_run)
+        self.block(dry_run=dry_run)
+        return affected_steps
 
     def shutdown(self, dry_run=True):
         """Send message to shutdown the trail server. After this call, no other API calls can be served.

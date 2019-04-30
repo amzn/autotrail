@@ -10,13 +10,15 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the speci
 limitations under the License.
 """
 
+import mock
 import socket
 import sys
 import unittest
 
-from mock import MagicMock, patch, call
-from Queue import Empty as QueueEmpty
-from StringIO import StringIO
+from mock import MagicMock, patch
+
+from six import StringIO
+from six.moves.queue import Empty as QueueEmpty
 
 from autotrail.core.dag import Step, topological_traverse
 from autotrail.layer1.api import APICallField, APICallName, StatusField
@@ -90,9 +92,9 @@ class TestTrailServer(unittest.TestCase):
         self.assertEqual(trail_server.trail_process, None)
         self.assertEqual(trail_server.delay, 1)
 
-        self.mock_mktemp.assert_any_call_with(prefix='autotrail.')
+        self.mock_mktemp.assert_any_call(prefix='autotrail.')
         self.assertEqual(trail_server.dag_file, 'mock_temp_file')
-        self.mock_mktemp.assert_any_call_with(prefix='autotrail.socket.')
+        self.mock_mktemp.assert_any_call(prefix='autotrail.socket.')
         self.assertEqual(trail_server.socket_file, 'mock_temp_file')
 
         self.mock_socket_server_setup.assert_called_once_with('mock_temp_file', backlog_count=1, timeout=0.0001)
@@ -120,7 +122,7 @@ class TestTrailServer(unittest.TestCase):
         passed_backup_function(self.mock_root_step)
         self.mock_backup_trail.assert_called_once_with(self.mock_root_step, trail_server.dag_file)
 
-        self.assertEqual(kwargs_for_sigint_resistant_function, dict(context=mock_context, delay=mock_delay))
+        self.assertEqual(kwargs_for_sigint_resistant_function, dict(delay=mock_delay))
 
         self.mock_process_object.start.assert_called_once_with()
 
@@ -140,7 +142,7 @@ class TestTrailServer(unittest.TestCase):
         self.mock_backup_trail.assert_called_once_with(self.mock_root_step, trail_server.dag_file)
 
         kwargs = mock_trail_manager.call_args[1]
-        self.assertEqual(kwargs, dict(context=mock_context, delay=mock_delay))
+        self.assertEqual(kwargs, dict(delay=mock_delay))
 
         trail_manager_patcher.stop()
 
@@ -220,24 +222,24 @@ class TestTrailClient(unittest.TestCase):
         self.assertEqual(result, self.mock_result)
 
     def test_stop(self):
-        self.trail_client.interrupt = MagicMock()
-        self.trail_client.block = MagicMock(return_value='mock_result')
+        self.trail_client.interrupt = MagicMock(return_value='mock_interrupt_result')
+        self.trail_client.block = MagicMock(return_value='mock_block_result')
 
         result = self.trail_client.stop()
 
-        self.trail_client.interrupt.assert_not_called()
-        self.trail_client.block.assert_called_once_with(dry_run=False)
-        self.assertEqual(result, 'mock_result')
+        self.trail_client.interrupt.assert_called_once_with(dry_run=True)
+        self.trail_client.block.assert_called_once_with(dry_run=True)
+        self.assertEqual(result, 'mock_interrupt_result')
 
-    def test_stop_with_interrupt(self):
-        self.trail_client.interrupt = MagicMock()
-        self.trail_client.block = MagicMock(return_value='mock_result')
+    def test_stop_without_dry_run(self):
+        self.trail_client.interrupt = MagicMock(return_value='mock_interrupt_result')
+        self.trail_client.block = MagicMock(return_value='mock_block_result')
 
-        result = self.trail_client.stop(interrupt=True)
+        result = self.trail_client.stop(dry_run=False)
 
         self.trail_client.interrupt.assert_called_once_with(dry_run=False)
         self.trail_client.block.assert_called_once_with(dry_run=False)
-        self.assertEqual(result, 'mock_result')
+        self.assertEqual(result, 'mock_interrupt_result')
 
     def test_shutdown(self):
         result = self.trail_client.shutdown(dry_run=self.mock_dry_run)
@@ -529,7 +531,7 @@ class TestTrailBackupRestore(unittest.TestCase):
         self.assertEqual(self.step_a.state, self.step_a.PAUSED)
 
     def test_restore_trail(self):
-        open_patcher = patch('__builtin__.open')
+        open_patcher = patch('six.moves.builtins.open')
         mock_open = open_patcher.start()
         json_load_patcher = patch('autotrail.layer2.trail.json.load', return_value='mock_trail_data')
         mock_json_load = json_load_patcher.start()
@@ -539,7 +541,7 @@ class TestTrailBackupRestore(unittest.TestCase):
         restore_trail(self.step_a, 'mock_file', {Step.BLOCKED: Step.PAUSED})
 
         self.assertEqual(mock_open.mock_calls,
-                         [call('mock_file', 'r'), call().__enter__(), call().__exit__(None, None, None)])
+                         [mock.call('mock_file', 'r'), mock.call().__enter__(), mock.call().__exit__(None, None, None)])
         mock_json_load.assert_called_once_with(mock_open().__enter__())
         mock_deserialize_trail.assert_called_once_with(self.step_a, 'mock_trail_data', {Step.BLOCKED: Step.PAUSED})
 
@@ -548,7 +550,7 @@ class TestTrailBackupRestore(unittest.TestCase):
         open_patcher.stop()
 
     def test_backup_trail(self):
-        open_patcher = patch('__builtin__.open')
+        open_patcher = patch('six.moves.builtins.open')
         mock_open = open_patcher.start()
         json_dump_patcher = patch('autotrail.layer2.trail.json.dump')
         mock_json_dump = json_dump_patcher.start()
@@ -626,7 +628,8 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(func.call_count, 9)
         self.assertEqual(predicate.call_count, 8)
         self.assertEqual(validate.call_count, 7)
-        self.assertEqual(validate.mock_calls, [call(1), call(2), call(2), call(2), call(3), call(4), call(4)])
+        self.assertEqual(validate.mock_calls, [mock.call(1), mock.call(2), mock.call(2), mock.call(2), mock.call(3),
+                                               mock.call(4), mock.call(4)])
 
     def test_wait_till_change_max_tries_exhausted(self):
         func = MagicMock(return_value='foo')
@@ -639,7 +642,7 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(func.call_count, 3)
         self.assertEqual(predicate.call_count, 2)
         self.assertEqual(validate.call_count, 2)
-        self.assertEqual(validate.mock_calls, [call('foo'), call('foo')])
+        self.assertEqual(validate.mock_calls, [mock.call('foo'), mock.call('foo')])
 
     def test_wait_till_change_predicate_fails(self):
         func = MagicMock(return_value='foo')
@@ -664,7 +667,8 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(func.call_count, 6)
         self.assertEqual(predicate.call_count, 5)
         self.assertEqual(validate.call_count, 5)
-        self.assertEqual(validate.mock_calls, [call('foo'), call('foo'), call('foo'), call('foo'), call('foo')])
+        self.assertEqual(validate.mock_calls, [mock.call('foo'), mock.call('foo'), mock.call('foo'), mock.call('foo'),
+                                               mock.call('foo')])
 
     def test_wait_till_change_max_tries_is_negative(self):
         func = MagicMock()

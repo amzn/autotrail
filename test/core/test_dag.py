@@ -13,6 +13,8 @@ limitations under the License.
 import unittest
 import uuid
 
+from mock import MagicMock
+
 
 from autotrail.core.dag import (
     Vertex, Step, Stack, Queue, traverse, breadth_first_traverse, depth_first_traverse, is_dag_acyclic,
@@ -66,6 +68,21 @@ class TestStep(unittest.TestCase):
         self.assertEqual(step.input_messages, [])
         self.assertTrue(step.pause_on_fail)
         self.assertEqual(str(step), 'mock_function')
+
+        mock_env = MagicMock()
+        mock_context = MagicMock()
+        mock_return_value = MagicMock()
+        mock_exception = MagicMock()
+
+        args, kwargs = step.pre_processor(mock_env, mock_context)
+        self.assertEqual(args, (mock_env, mock_context))
+        self.assertEqual(kwargs, {})
+
+        return_value = step.post_processor(mock_env, mock_context, mock_return_value)
+        self.assertEqual(return_value, mock_return_value)
+
+        return_value = step.failure_handler(mock_env, mock_context, mock_exception)
+        self.assertEqual(return_value, mock_exception)
 
     def test_instance_with_callable_object(self):
 

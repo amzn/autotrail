@@ -12,13 +12,15 @@ limitations under the License.
 
 import json
 import logging
+import mock
 import signal
 import unittest
 
 from functools import partial
-from mock import MagicMock, patch, call
-from Queue import Empty as QueueEmpty
+from mock import MagicMock, patch
 from socket import SHUT_RDWR
+
+from six.moves.queue import Empty as QueueEmpty
 
 from autotrail.core.dag import Step
 from autotrail.layer1.api import StatusField, handle_api_call
@@ -36,6 +38,10 @@ from autotrail.layer1.trail import (
     StepResult,
     TrailEnvironment,
     trail_manager)
+
+
+class MockException(Exception):
+    pass
 
 
 class TestStepResult(unittest.TestCase):
@@ -66,38 +72,24 @@ class TestStepManager(unittest.TestCase):
         step.tags['n'] = 7 # Typically this is set automatically. We're setting this manually for testing purposes.
         step.result_queue = MagicMock()
         trail_environment = MagicMock()
-        step_manager(step, trail_environment, context='foo')
+        step_manager(step, (trail_environment,), dict(context='foo'))
 
         expected_result = StepResult(result=Step.SUCCESS, return_value='test return value foo')
         step.result_queue.put.assert_called_once_with(expected_result)
 
     def test_step_manager_with_exception(self):
+        test_exception = Exception('test exception')
         def action_function(trail_env, context):
-            raise Exception('test exception')
+            raise test_exception
             return 'test return value'
 
         step = Step(action_function)
         step.tags['n'] = 7 # Typically this is set automatically. We're setting this manually for testing purposes.
         step.result_queue = MagicMock()
         trail_environment = MagicMock()
-        step_manager(step, trail_environment, context='foo')
+        step_manager(step, (trail_environment,), dict(context='foo'))
 
-        expected_result = StepResult(result=Step.PAUSED_ON_FAIL, return_value='test exception')
-        step.result_queue.put.assert_called_once_with(expected_result)
-
-    def test_step_manager_with_unset_pause_on_fail(self):
-        def action_function(trail_env, context):
-            raise Exception('test exception')
-            return 'test return value'
-
-        step = Step(action_function)
-        step.tags['n'] = 7 # Typically this is set automatically. We're setting this manually for testing purposes.
-        step.pause_on_fail = False
-        step.result_queue = MagicMock()
-        trail_environment = MagicMock()
-        step_manager(step, trail_environment, context='foo')
-
-        expected_result = StepResult(result=Step.FAILURE, return_value='test exception')
+        expected_result = StepResult(result=Step.FAILURE, return_value=test_exception)
         step.result_queue.put.assert_called_once_with(expected_result)
 
 
@@ -106,31 +98,60 @@ class TestHelperFunctions(unittest.TestCase):
         def action_function_a():
             return 'test return value'
 
-        step = Step(action_function_a)
+        mock_args = MagicMock()
+        mock_kwargs = MagicMock()
+        mock_pre_processor = MagicMock(return_value=(mock_args, mock_kwargs))
+        step = Step(action_function_a, pre_processor=mock_pre_processor)
+        step.context = 'mock_context'
         step.tags['n'] = 0
 
         process_patcher = patch('autotrail.layer1.trail.Process')
         mock_process = process_patcher.start()
 
-        run_step(step, 'mock_context')
+        run_step(step)
 
         process_patcher.stop()
 
         args, kwargs = mock_process.call_args
-        arg_step, arg_trail_env, arg_context = kwargs['args']
+        arg_step, arg_args, arg_kwargs = kwargs['args']
         self.assertEqual(step, arg_step)
-        self.assertIsInstance(arg_trail_env, TrailEnvironment)
-        self.assertEqual(arg_context, 'mock_context')
+        self.assertEqual(arg_args, mock_args)
+        self.assertEqual(arg_kwargs, mock_kwargs)
         self.assertEqual(kwargs['target'], step_manager)
 
-        self.assertIn(call().start(), mock_process.mock_calls)
+        self.assertIn(mock.call().start(), mock_process.mock_calls)
         self.assertEqual(step.state, step.RUN)
+
+    def test_run_step_when_pre_processor_fails(self):
+        def action_function_a():
+            return 'test return value'
+
+        mock_exception = MockException()
+        mock_pre_processor = MagicMock(side_effect=mock_exception)
+        step = Step(action_function_a, pre_processor=mock_pre_processor)
+        step.context = 'mock_context'
+        step.tags['n'] = 0
+
+        process_patcher = patch('autotrail.layer1.trail.Process')
+        mock_process = process_patcher.start()
+
+        run_step(step)
+
+        process_patcher.stop()
+        self.assertEqual(step.process, None)
+        self.assertEqual(mock_process.mock_calls, [])
+        self.assertEqual(step.state, step.FAILURE)
+        self.assertEqual(step.return_value, mock_exception)
 
     def test_run_step_with_rerun_of_a_step(self):
         def action_function_a():
             return 'test return value'
 
-        step = Step(action_function_a)
+        mock_args = MagicMock()
+        mock_kwargs = MagicMock()
+        mock_pre_processor = MagicMock(return_value=(mock_args, mock_kwargs))
+        step = Step(action_function_a, pre_processor=mock_pre_processor)
+        step.context = 'mock_context'
         step.tags['n'] = 0
 
         # Setup some old values for the step. Similar to the effect of running the step might have.
@@ -141,18 +162,18 @@ class TestHelperFunctions(unittest.TestCase):
         process_patcher = patch('autotrail.layer1.trail.Process')
         mock_process = process_patcher.start()
 
-        run_step(step, 'mock_context')
+        run_step(step)
 
         process_patcher.stop()
 
         args, kwargs = mock_process.call_args
-        arg_step, arg_trail_env, arg_context = kwargs['args']
+        arg_step, arg_args, arg_kwargs = kwargs['args']
         self.assertEqual(step, arg_step)
-        self.assertIsInstance(arg_trail_env, TrailEnvironment)
-        self.assertEqual(arg_context, 'mock_context')
+        self.assertEqual(arg_args, mock_args)
+        self.assertEqual(arg_kwargs, mock_kwargs)
         self.assertEqual(kwargs['target'], step_manager)
 
-        self.assertIn(call().start(), mock_process.mock_calls)
+        self.assertIn(mock.call().start(), mock_process.mock_calls)
         self.assertEqual(step.state, step.RUN)
 
         # Because the step is being re-run, the old values of the following attributes should get reset.
@@ -186,7 +207,7 @@ class TestHelperFunctions(unittest.TestCase):
 
         collect_output_messages_from_step(step)
 
-        self.assertEqual(step.output_queue.get_nowait.mock_calls, [call(), call()])
+        self.assertEqual(step.output_queue.get_nowait.mock_calls, [mock.call(), mock.call()])
 
         expected_messages = ['foo']
 
@@ -200,7 +221,7 @@ class TestHelperFunctions(unittest.TestCase):
 
         collect_prompt_messages_from_step(step)
 
-        self.assertEqual(step.prompt_queue.get_nowait.mock_calls, [call(), call()])
+        self.assertEqual(step.prompt_queue.get_nowait.mock_calls, [mock.call(), mock.call()])
 
         expected_messages = ['foo']
 
@@ -329,9 +350,14 @@ class TestCheckRunningStep(unittest.TestCase):
         self.mock_collect_prompt_messages_from_step = self.collect_prompt_messages_from_step_patcher.start()
 
         self.mock_result = MagicMock()
-        self.mock_result.result = 'mock_result'
+        self.mock_result.result = Step.SUCCESS
         self.mock_result.return_value = 'mock_return_value'
-        self.mock_step = Step(lambda x: x)
+        self.mock_return_value = MagicMock()
+        self.mock_failed_return_value = MagicMock()
+        self.mock_post_processor = MagicMock(return_value=self.mock_return_value)
+        self.mock_failure_handler = MagicMock(return_value=self.mock_failed_return_value)
+        self.mock_step = Step(lambda x: x, post_processor=self.mock_post_processor,
+                              failure_handler=self.mock_failure_handler)
         self.mock_step.skip_progeny_on_failure = False
         self.mock_step.result_queue = MagicMock()
         self.mock_step.result_queue.get_nowait = MagicMock(return_value=self.mock_result)
@@ -345,25 +371,55 @@ class TestCheckRunningStep(unittest.TestCase):
     def test_when_step_returns_result(self):
         check_running_step(self.mock_step)
 
-        self.assertEqual(self.mock_step.state, 'mock_result')
-        self.assertEqual(self.mock_step.return_value, 'mock_return_value')
+        self.mock_post_processor.assert_called_once_with(self.mock_step.environment, self.mock_step.context,
+                                                         self.mock_result.return_value)
+        self.assertEqual(self.mock_step.state, Step.SUCCESS)
+        self.assertEqual(self.mock_step.return_value, self.mock_return_value)
         self.mock_log_step.assert_called_once_with(logging.debug, self.mock_step, (
-            'Step has completed. Changed state to: mock_result. Setting return value to: mock_return_value'))
+            'Step has succeeded. Changed state to: {}. Setting return value to: {}'.format(
+                Step.SUCCESS, self.mock_return_value)))
         self.assertEqual(self.mock_skip_progeny.call_count, 0)
+        self.assertEqual(self.mock_failure_handler.call_count, 0)
         self.mock_collect_output_messages_from_step.assert_called_once_with(self.mock_step)
         self.mock_collect_prompt_messages_from_step.assert_called_once_with(self.mock_step)
 
     def test_when_step_does_not_return_a_result(self):
+        self.mock_result.result = Step.RUN
         self.mock_step.result_queue.get_nowait = MagicMock(side_effect=QueueEmpty)
 
         check_running_step(self.mock_step)
 
-        self.assertNotEqual(self.mock_step.state, 'mock_result')
+        self.assertNotEqual(self.mock_step.state, Step.RUN)
         self.assertNotEqual(self.mock_step.return_value, 'mock_return_value')
         self.assertEqual(self.mock_log_step.call_count, 0)
         self.assertEqual(self.mock_skip_progeny.call_count, 0)
         self.mock_collect_output_messages_from_step.assert_called_once_with(self.mock_step)
         self.mock_collect_prompt_messages_from_step.assert_called_once_with(self.mock_step)
+        self.assertEqual(self.mock_post_processor.call_count, 0)
+        self.assertEqual(self.mock_failure_handler.call_count, 0)
+
+    def test_when_step_fails_and_pause_due_to_failure_is_disabled(self):
+        self.mock_result.result = Step.FAILURE
+        self.mock_result.return_value = 'mock_return_value'
+        self.mock_step.skip_progeny_on_failure = True
+        self.mock_step.state = Step.RUN
+        self.mock_step.pause_on_fail = False
+        self.mock_step.return_value = None
+        self.mock_step.result_queue.get_nowait = MagicMock(return_value=self.mock_result)
+
+        check_running_step(self.mock_step)
+
+        self.mock_failure_handler.assert_called_once_with(self.mock_step.environment, self.mock_step.context,
+                                                          self.mock_result.return_value)
+        self.assertEqual(self.mock_step.state, Step.FAILURE)
+        self.assertEqual(self.mock_step.return_value, self.mock_failed_return_value)
+        self.mock_log_step.assert_called_once_with(logging.debug, self.mock_step, (
+            'Step has failed. Changed state to: {}. Setting return value to: {}').format(
+                Step.FAILURE, self.mock_failed_return_value))
+        self.mock_skip_progeny.assert_called_once_with(self.mock_step)
+        self.mock_collect_output_messages_from_step.assert_called_once_with(self.mock_step)
+        self.mock_collect_prompt_messages_from_step.assert_called_once_with(self.mock_step)
+        self.assertEqual(self.mock_post_processor.call_count, 0)
 
     def test_when_step_fails_and_progeny_need_to_be_skipped(self):
         self.mock_result.result = Step.FAILURE
@@ -375,29 +431,66 @@ class TestCheckRunningStep(unittest.TestCase):
 
         check_running_step(self.mock_step)
 
-        self.assertEqual(self.mock_step.state, Step.FAILURE)
-        self.assertEqual(self.mock_step.return_value, 'mock_return_value')
+        self.mock_failure_handler.assert_called_once_with(self.mock_step.environment, self.mock_step.context,
+                                                          self.mock_result.return_value)
+        self.assertEqual(self.mock_step.state, Step.PAUSED_ON_FAIL)
+        self.assertEqual(self.mock_step.return_value, self.mock_failed_return_value)
         self.mock_log_step.assert_called_once_with(logging.debug, self.mock_step, (
-            'Step has completed. Changed state to: {}. Setting return value to: mock_return_value').format(
-                Step.FAILURE))
+            'Step has failed. Changed state to: {}. Setting return value to: {}').format(
+                Step.PAUSED_ON_FAIL, self.mock_failed_return_value))
         self.mock_skip_progeny.assert_called_once_with(self.mock_step)
         self.mock_collect_output_messages_from_step.assert_called_once_with(self.mock_step)
         self.mock_collect_prompt_messages_from_step.assert_called_once_with(self.mock_step)
+        self.assertEqual(self.mock_post_processor.call_count, 0)
+
+    def test_when_post_processor_fails(self):
+        mock_exception = MockException()
+        mock_post_processor = MagicMock(side_effect=mock_exception)
+        mock_failure_handler_return_value = MagicMock()
+        mock_failure_handler = MagicMock(return_value=mock_failure_handler_return_value)
+        self.mock_step.failure_handler = mock_failure_handler
+        self.mock_step.post_processor = mock_post_processor
+
+        check_running_step(self.mock_step)
+
+        mock_post_processor.assert_called_once_with(self.mock_step.environment, self.mock_step.context,
+                                                    self.mock_result.return_value)
+        self.assertEqual(self.mock_step.state, Step.PAUSED_ON_FAIL)
+        mock_failure_handler.assert_called_once_with(self.mock_step.environment, self.mock_step.context,
+                                                     mock_exception)
+        self.assertEqual(self.mock_step.return_value, mock_failure_handler_return_value)
+        self.mock_log_step.assert_called_once_with(logging.debug, self.mock_step, (
+            'Step has failed. Changed state to: {}. Setting return value to: {}').format(
+            Step.PAUSED_ON_FAIL, mock_failure_handler_return_value))
+        self.assertEqual(self.mock_skip_progeny.call_count, 0)
+        self.mock_collect_output_messages_from_step.assert_called_once_with(self.mock_step)
+        self.mock_collect_prompt_messages_from_step.assert_called_once_with(self.mock_step)
+
+    def test_when_failure_handler_fails(self):
+        mock_exception = MockException()
+        mock_failure_handler = MagicMock(side_effect=mock_exception)
+        self.mock_step.failure_handler = mock_failure_handler
+        self.mock_result.result = Step.FAILURE
+        self.mock_result.return_value = 'mock_return_value'
+
+        check_running_step(self.mock_step)
+
+        mock_failure_handler.assert_called_once_with(self.mock_step.environment, self.mock_step.context,
+                                                     self.mock_result.return_value)
+        self.assertEqual(self.mock_step.state, Step.PAUSED_ON_FAIL)
+        self.assertEqual(self.mock_step.return_value, mock_exception)
+        self.mock_log_step.assert_called_once_with(logging.debug, self.mock_step, (
+            'Step has failed. Changed state to: {}. Setting return value to: {}').format(
+                Step.PAUSED_ON_FAIL, mock_exception))
+        self.assertEqual(self.mock_skip_progeny.call_count, 0)
+        self.assertEqual(self.mock_post_processor.call_count, 0)
+        self.mock_collect_output_messages_from_step.assert_called_once_with(self.mock_step)
+        self.mock_collect_prompt_messages_from_step.assert_called_once_with(self.mock_step)
+
 
 class TestStateTransitions(unittest.TestCase):
     def test_when_state_is_running(self):
-        mock_step = MagicMock()
-        mock_context = MagicMock()
-        check_running_step_patcher = patch('autotrail.layer1.trail.check_running_step', return_value=None)
-        mock_check_running_step = check_running_step_patcher.start()
-
-        transition_function = STATE_TRANSITIONS[Step.RUN]
-
-        return_value = transition_function(mock_step, mock_context)
-        self.assertFalse(return_value)
-        mock_check_running_step.assert_called_once_with(mock_step)
-
-        check_running_step_patcher.stop()
+        self.assertEqual(STATE_TRANSITIONS[Step.RUN], check_running_step)
 
     def test_when_state_is_to_skip(self):
         mock_step = MagicMock()
@@ -406,7 +499,7 @@ class TestStateTransitions(unittest.TestCase):
 
         transition_function = STATE_TRANSITIONS[Step.TOSKIP]
 
-        return_value = transition_function(mock_step, mock_context)
+        return_value = transition_function(mock_step)
         self.assertFalse(return_value)
         self.assertEqual(mock_step.state, Step.SKIPPED)
 
@@ -417,7 +510,7 @@ class TestStateTransitions(unittest.TestCase):
 
         transition_function = STATE_TRANSITIONS[Step.TOPAUSE]
 
-        return_value = transition_function(mock_step, mock_context)
+        return_value = transition_function(mock_step)
         self.assertFalse(return_value)
         self.assertEqual(mock_step.state, Step.PAUSED)
 
@@ -428,7 +521,7 @@ class TestStateTransitions(unittest.TestCase):
 
         transition_function = STATE_TRANSITIONS[Step.TOBLOCK]
 
-        return_value = transition_function(mock_step, mock_context)
+        return_value = transition_function(mock_step)
         self.assertFalse(return_value)
         self.assertEqual(mock_step.state, Step.BLOCKED)
 
@@ -466,11 +559,11 @@ class TestTrailManager(unittest.TestCase):
         self.topological_while_patcher.stop()
 
     def test_normal_run(self):
-        trail_manager(self.mock_root_step, self.mock_api_socket, self.mock_backup, delay=12, context=self.mock_context,
+        trail_manager(self.mock_root_step, self.mock_api_socket, self.mock_backup, delay=12,
                       state_transitions=self.mock_state_transitions)
 
         self.mock_topological_traverse.assert_called_once_with(self.mock_root_step)
-        self.mock_state_transition.assert_called_once_with(self.mock_step, self.mock_context)
+        self.mock_state_transition.assert_called_once_with(self.mock_step)
 
         root_step, done_check, ignore_check = self.mock_topological_while.call_args[0]
         self.assertEqual(root_step, self.mock_root_step)
@@ -513,7 +606,7 @@ class TestTrailManager(unittest.TestCase):
 
     def test_when_step_state_is_not_transitioned(self):
         mock_state_transitions = dict(state_not_reached=self.mock_state_transition)
-        trail_manager(self.mock_root_step, self.mock_api_socket, self.mock_backup, delay=12, context=self.mock_context,
+        trail_manager(self.mock_root_step, self.mock_api_socket, self.mock_backup, delay=12,
                       state_transitions=mock_state_transitions)
 
         self.mock_topological_traverse.assert_called_once_with(self.mock_root_step)

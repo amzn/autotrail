@@ -206,14 +206,15 @@ class TestCLIHelpers(unittest.TestCase):
         namespace.method = 'mock_method'
         tags = MagicMock()
         client = MagicMock()
+        args = ('mock_arg',)
         kwargs = dict(mock_key='mock_value')
-        mock_extractor = MagicMock(return_value=kwargs)
+        mock_extractor = MagicMock(return_value=(args, kwargs))
         parameter_extractor_mapping = {'mock_method': mock_extractor}
 
         make_api_call(namespace, tags, client, parameter_extractor_mapping=parameter_extractor_mapping)
 
         mock_extractor.assert_called_once_with(namespace, tags)
-        client.mock_method.assert_called_once_with(**kwargs)
+        client.mock_method.assert_called_once_with(*args, **kwargs)
 
 class TestParameterExtractorMappingLambdas(unittest.TestCase):
     def setUp(self):
@@ -221,97 +222,121 @@ class TestParameterExtractorMappingLambdas(unittest.TestCase):
         self.tags = dict(mock_key='mock_value')
 
     def test_start(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['start'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['start'](self.namespace, self.tags)
 
-        self.assertEqual(kwargs, dict(stepped=self.namespace.stepped))
+        self.assertEqual(kwargs, dict())
+        self.assertEqual(args, ())
 
     def test_stop(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['stop'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['stop'](self.namespace, self.tags)
 
-        self.assertEqual(kwargs, dict(interrupt=self.namespace.interrupt))
+        self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run))
+        self.assertEqual(args, ())
+
+    def test_shutdown(self):
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['shutdown'](self.namespace, self.tags)
+
+        self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run))
+        self.assertEqual(args, ())
 
     def test_next_step(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['next_step'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['next_step'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(step_count=self.namespace.step_count, dry_run=self.namespace.dry_run))
+        self.assertEqual(args, ())
 
     def test_send_message_to_steps(self):
         self.namespace.type = 'str'
         self.namespace.message = 'mock_message'
 
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['send_message_to_steps'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['send_message_to_steps'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(message='mock_message', dry_run=self.namespace.dry_run, mock_key='mock_value'))
-
-    def test_is_running(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['is_running'](self.namespace, self.tags)
-
-        self.assertEqual(kwargs, dict())
+        self.assertEqual(args, ())
 
     def test_status(self):
         self.namespace.fields = 'mock_fields'
         self.namespace.state = 'mock_state'
 
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['status'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['status'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(fields='mock_fields', states='mock_state', mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_steps_waiting_for_user_input(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['steps_waiting_for_user_input'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['steps_waiting_for_user_input'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_pause(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['pause'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['pause'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_pause_branch(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['pause_branch'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['pause_branch'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
+
+    def test_set_pause_on_fail(self):
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['set_pause_on_fail'](self.namespace, self.tags)
+
+        self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_unset_pause_on_fail(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['unset_pause_on_fail'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['unset_pause_on_fail'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_interrupt(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['interrupt'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['interrupt'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_resume(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['resume'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['resume'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_resume_branch(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['resume_branch'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['resume_branch'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_list(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['list'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['list'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_skip(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['skip'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['skip'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_unskip(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['unskip'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['unskip'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_block(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['block'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['block'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())
 
     def test_unblock(self):
-        kwargs = PARAMETER_EXTRACTOR_MAPPING['unblock'](self.namespace, self.tags)
+        args, kwargs = PARAMETER_EXTRACTOR_MAPPING['unblock'](self.namespace, self.tags)
 
         self.assertEqual(kwargs, dict(dry_run=self.namespace.dry_run, mock_key='mock_value'))
+        self.assertEqual(args, ())

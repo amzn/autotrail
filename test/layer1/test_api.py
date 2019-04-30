@@ -11,10 +11,12 @@ limitations under the License.
 """
 
 import logging
+import mock
 import unittest
 
-from mock import MagicMock, patch, call
-from Queue import Empty as QueueEmpty
+from mock import MagicMock, patch
+
+from six.moves.queue import Empty as QueueEmpty
 
 from autotrail.core.dag import Step
 from autotrail.core.socket_communication import HandlerResult
@@ -114,10 +116,10 @@ class TestHelpers(unittest.TestCase):
 
         self.assertEqual(list(steps), [self.step_b, self.step_d])
         self.assertEqual(mock_is_dict_subset_of.mock_calls, [
-            call({'group': 1}, {'name': 'action_function_a'}),
-            call({'group': 1}, {'group': 1, 'name': 'action_function_b'}),
-            call({'group': 1}, {'name': 'action_function_c'}),
-            call({'group': 1}, {'group': 1, 'name': 'action_function_d'})])
+            mock.call({'group': 1}, {'name': 'action_function_a'}),
+            mock.call({'group': 1}, {'group': 1, 'name': 'action_function_b'}),
+            mock.call({'group': 1}, {'name': 'action_function_c'}),
+            mock.call({'group': 1}, {'group': 1, 'name': 'action_function_d'})])
 
         is_dict_subset_of_patcher.stop()
 
@@ -145,8 +147,8 @@ class TestHelpers(unittest.TestCase):
         self.assertIn('mock_step_1', progeny)
         self.assertIn('mock_step_2', progeny)
         self.assertIn('mock_step_3', progeny)
-        self.assertEqual(mock_topological_traverse.mock_calls, [call('mock_step_1'), call('mock_step_2'),
-                                                                call('mock_step_3')])
+        self.assertEqual(mock_topological_traverse.mock_calls, [mock.call('mock_step_1'), mock.call('mock_step_2'),
+                                                                mock.call('mock_step_3')])
 
         topological_traverse_patcher.stop()
 
@@ -181,14 +183,33 @@ class TestHelpers(unittest.TestCase):
 
     def test_step_to_stepstatus_all_fields(self):
         step = Step(lambda x: x, n=0)
-        step_status = step_to_stepstatus(step, [StatusField.STATE, StatusField.RETURN_VALUE,
+        step_status = step_to_stepstatus(step, [StatusField.STATE, StatusField.RETURN_VALUE, StatusField.TAGS,
                                                 StatusField.OUTPUT_MESSAGES, StatusField.PROMPT_MESSAGES,
                                                 StatusField.UNREPLIED_PROMPT_MESSAGE])
 
         self.assertEqual(step_status, { StatusField.N: 0,
                                         StatusField.NAME: str(step),
+                                        StatusField.TAGS: step.tags,
                                         StatusField.STATE: Step.READY,
                                         StatusField.RETURN_VALUE: None,
+                                        StatusField.OUTPUT_MESSAGES: [],
+                                        StatusField.PROMPT_MESSAGES: [],
+                                        StatusField.UNREPLIED_PROMPT_MESSAGE: None})
+
+    def test_step_to_stepstatus_with_non_json_serializable_return_value(self):
+        step = Step(lambda x: x, n=0)
+        mock_exception = TypeError('is not JSON serializable')
+        step.return_value = mock_exception
+
+        step_status = step_to_stepstatus(step, [StatusField.STATE, StatusField.RETURN_VALUE, StatusField.TAGS,
+                                                StatusField.OUTPUT_MESSAGES, StatusField.PROMPT_MESSAGES,
+                                                StatusField.UNREPLIED_PROMPT_MESSAGE])
+
+        self.assertEqual(step_status, { StatusField.N: 0,
+                                        StatusField.NAME: str(step),
+                                        StatusField.TAGS: step.tags,
+                                        StatusField.STATE: Step.READY,
+                                        StatusField.RETURN_VALUE: str(mock_exception),
                                         StatusField.OUTPUT_MESSAGES: [],
                                         StatusField.PROMPT_MESSAGES: [],
                                         StatusField.UNREPLIED_PROMPT_MESSAGE: None})
@@ -711,7 +732,8 @@ class TestAPICallDefinitions(unittest.TestCase):
 
     def test_definition_block(self):
         self.check_api_definition(APICallName.BLOCK,
-                                  [Step.READY, Step.WAIT, Step.TOPAUSE, Step.PAUSED, Step.PAUSED_ON_FAIL],
+                                  [Step.READY, Step.WAIT, Step.TOPAUSE, Step.PAUSED, Step.PAUSED_ON_FAIL,
+                                   Step.INTERRUPTED],
                                   'state',
                                   Step.TOBLOCK)
 

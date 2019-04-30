@@ -37,60 +37,64 @@ logging.basicConfig(level=logging.DEBUG, filename=os.path.join('/', 'tmp', 'exam
 
 # Context definitions
 class Context(object):
-    def __init__(self, value):
-        self.value = value
+    def __init__(self, seed):
+        self.seed = seed
+        self.values = []
+
+
+def pre_processor(_, context):
+    return ((context.seed,), {})
+
+
+def post_processor(_, context, return_value):
+    old_values = list(context.values)
+    context.values.append(return_value)
+    return 'Values before action: {}. Value after action: {}'.format(old_values, context.values)
 
 
 # Step definitions
-@accepts_context
-def action_function_a(context):
+def action_function_a(value):
     sleep(5)
-    return "This is action A. Value from context: {}".format(context.value)
+    return value+1
 
 
-@accepts_context
-def action_function_b(context):
+def action_function_b(value):
     sleep(10)
-    return "This is action B. Value from context: {}".format(context.value)
+    return value+2
 
 
-@accepts_context
-def action_function_c(context):
+def action_function_c(value):
     sleep(1)
-    return "This is action C. Value from context: {}".format(context.value)
+    return value+3
 
 
-@accepts_context
-def action_function_d(context):
+def action_function_d(value):
     sleep(10)
-    return "This is action D. Value from context: {}".format(context.value)
+    return value+4
 
 
-@accepts_context
-def action_function_e(context):
+def action_function_e(value):
     sleep(5)
-    return "This is action E. Value from context: {}".format(context.value)
+    return value+5
 
 
-@accepts_context
-def action_function_f(context):
+def action_function_f(value):
     sleep(1)
-    return "This is action F. Value from context: {}".format(context.value)
+    return value+6
 
 
-@accepts_context
-def action_function_g(context):
+def action_function_g(value):
     sleep(10)
-    return "This is action G. Value from context: {}".format(context.value)
+    return value+7
 
 
-step_a = Step(action_function_a)
-step_b = Step(action_function_b)
-step_c = Step(action_function_c, foo='bar')
-step_d = Step(action_function_d)
-step_e = Step(action_function_e)
-step_f = Step(action_function_f, foo='bar')
-step_g = Step(action_function_g)
+step_a = Step(action_function_a, pre_processor=pre_processor, post_processor=post_processor)
+step_b = Step(action_function_b, pre_processor=pre_processor, post_processor=post_processor)
+step_c = Step(action_function_c, pre_processor=pre_processor, post_processor=post_processor, foo='bar')
+step_d = Step(action_function_d, pre_processor=pre_processor, post_processor=post_processor)
+step_e = Step(action_function_e, pre_processor=pre_processor, post_processor=post_processor)
+step_f = Step(action_function_f, pre_processor=pre_processor, post_processor=post_processor, foo='bar')
+step_g = Step(action_function_g, pre_processor=pre_processor, post_processor=post_processor)
 
 
 # Trail definition
@@ -118,7 +122,7 @@ example_trail_definition = [
 
 
 # Setup trail to run automatically (non-interactively)
-context = Context(42)
+context = Context(10)
 example_trail_server = TrailServer(example_trail_definition, delay=0.5, context=context)
 
 # Run the server in a separate thread so that we can interact with it right here.
@@ -131,5 +135,5 @@ example = InteractiveTrail(example_trail)
 
 # Start interactive session
 interactive(globals(), prompt='Example Trail>')
-example.stop(interrupt=True)
+example.stop(dry_run=False)
 example.shutdown(dry_run=False)

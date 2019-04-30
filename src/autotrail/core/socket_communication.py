@@ -15,7 +15,10 @@ import logging
 
 from collections import namedtuple
 from socket import AF_UNIX, SOCK_STREAM, socket, timeout
-from urllib import quote, unquote
+
+import six
+
+from six.moves.urllib.parse import quote, unquote
 
 
 def socket_write(socket, message):
@@ -28,8 +31,11 @@ def socket_write(socket, message):
     Post-condition:
     The message is quoted and then written as a string to the socket appended with a newline character.
     """
-    wfile = socket.makefile('wb')
-    wfile.write('{}\n'.format(quote(message)))
+    if six.PY2:
+        wfile = socket.makefile('wb')
+    else:
+        wfile = socket.makefile('wb', buffering=None)
+    wfile.write('{}\n'.format(quote(message)).encode('UTF-8'))
     wfile.close()
 
 
@@ -56,8 +62,11 @@ def socket_read(socket):
     Returns:
     String         -- after stripping and unquoting the request received.
     """
-    rfile = socket.makefile('rb')
-    request = unquote(rfile.readline().strip())
+    if six.PY2:
+        rfile = socket.makefile('rb')
+    else:
+        rfile = socket.makefile('rb', buffering=None, newline='\n')
+    request = unquote(rfile.readline().decode('UTF-8').strip())
     rfile.close()
     return request
 
@@ -100,7 +109,7 @@ def socket_server_setup(socket_file, backlog_count=1, timeout=0.00001, family=AF
 
 
 def send_request(socket_file, request, family=AF_UNIX, socket_type=SOCK_STREAM, socket_reader=socket_read_json,
-                  socket_writer=socket_write_json):
+                 socket_writer=socket_write_json):
     """Send the given request using the given socket and return the response received.
 
     Arguments:

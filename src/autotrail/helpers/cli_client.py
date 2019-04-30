@@ -22,6 +22,8 @@ setup_cli_args_for_trail_client behaves.
 
 import logging
 
+from six import iteritems
+
 
 def extract_args_and_kwargs(*args, **kwargs):
     """Accept args and kwargs and return a tuple containing them in the form (args, kwargs)."""
@@ -49,27 +51,18 @@ METHODS_CLI_SWITCH_MAPPING = {
     # call to substitute_cli_switches.
     'start': (
         'Send message to start a trail.',
-        [
-            extract_args_and_kwargs('--stepped', action='store_true', help=(
-                'The trail will be paused immediately upon start. This has the effect of running only one step, '
-                'allowing the user to run one step at a time and running the next step using the "next_step()" '
-                'method.'))
-        ]
+        []
     ),
     'stop': (
-        ('Stop the run of a trail safely. This will stop the run of a trail but only after current in-progress '
-         'steps are done.'),
+        ('Send mesage to stop the run of a trail by blocking all steps. Running steps will be interrupted before '
+         'being blocked. This is achieved by calling "interrupt" followed by "block" on all the steps.'),
         [
-            extract_args_and_kwargs('--interrupt', action='store_true',
-                                    help='Place an interrupt call on any running steps.')
+            CLIArgs.DRY_RUN
         ]
     ),
-    'next_step': (
-        'Send message to run next step.',
+    'shutdown': (
+        'Send message to shutdown the trail server. After this call, no other API calls can be served.',
         [
-            extract_args_and_kwargs('--step-count', type=int, default=1, help=(
-                'A number greater than 0. This is the number of steps to run before pausing again. '
-                'By default this is set to 1 so that the trail will pause after running the next step.')),
             CLIArgs.DRY_RUN
         ]
     ),
@@ -87,10 +80,11 @@ METHODS_CLI_SWITCH_MAPPING = {
             CLIArgs.TAGS
         ]
     ),
-    'is_running': (
-        ('Checks whether the trail process is running or not. The trail process needs to be running in order to '
-         'respond to API calls. This method can be used to check if the trail process is running or not.'),
-        []
+    'list': (
+        'List all steps in a trail (in topological order) along with their associated tags.',
+        [
+            CLIArgs.TAGS
+        ]
     ),
     'status': (
         'Get trail status. The output can be constrained by various criteria.',
@@ -133,16 +127,6 @@ METHODS_CLI_SWITCH_MAPPING = {
             CLIArgs.TAGS
         ]
     ),
-    'unset_pause_on_fail': (
-        ('Clear the pause_on_fail flag of a step. By default, all steps are marked with pause_on_fail so that they '
-         'are paused if they fail. This allows the user to either re-run the step, skip it or block it. This API call '
-         'unsets this flag. This will cause the Step to fully fail (irrecoverably) if the action function fails '
-         '(raises an exception).'),
-        [
-            CLIArgs.DRY_RUN,
-            CLIArgs.TAGS
-        ]
-    ),
     'interrupt': (
         ('Interrupt Steps. Mark the specified steps so that they are interrupted. A step can be interrupted only if '
          'it is running.'),
@@ -158,18 +142,21 @@ METHODS_CLI_SWITCH_MAPPING = {
             CLIArgs.TAGS
         ]
     ),
+    'next_step': (
+        'Send message to run next step.',
+        [
+            extract_args_and_kwargs('--step-count', type=int, default=1, help=(
+                'A number greater than 0. This is the number of steps to run before pausing again. '
+                'By default this is set to 1 so that the trail will pause after running the next step.')),
+            CLIArgs.DRY_RUN
+        ]
+    ),
     'resume_branch': (
         ('Resume all Steps in matching branches. Look for all the steps that are present in the branches originating '
          'from each of the matching steps and mark them so that they are resumed. A step can be resumed only if it is '
          'paused.'),
         [
             CLIArgs.DRY_RUN,
-            CLIArgs.TAGS
-        ]
-    ),
-    'list': (
-        'List all steps in a trail (in topological order) along with their associated tags.',
-        [
             CLIArgs.TAGS
         ]
     ),
@@ -203,32 +190,51 @@ METHODS_CLI_SWITCH_MAPPING = {
             CLIArgs.TAGS
         ]
     ),
+    'set_pause_on_fail': (
+        ('Set the pause_on_fail flag of a step. When this flag is set, steps are paused when they fail. This allows '
+         'the user to either re-run the step, skip it or block it.'),
+        [
+            CLIArgs.DRY_RUN,
+            CLIArgs.TAGS
+        ]
+    ),
+    'unset_pause_on_fail': (
+        ('Clear the pause_on_fail flag of a step. By default, all steps are marked with pause_on_fail so that they '
+         'are paused if they fail. This allows the user to either re-run the step, skip it or block it. This API call '
+         'unsets this flag. This will cause the Step to fully fail (irrecoverably) if the action function fails '
+         '(raises an exception).'),
+        [
+            CLIArgs.DRY_RUN,
+            CLIArgs.TAGS
+        ]
+    ),
 }
 
 
 PARAMETER_EXTRACTOR_MAPPING = {
     # To understand the structure of this dictionary please refer to the description of parameter_extractor_mapping
     # in the make_api_call function.
-    'start': lambda namespace, tags: dict(stepped=namespace.stepped),
-    'stop': lambda namespace, tags: dict(interrupt=namespace.interrupt),
-    'next_step': lambda namespace, tags: dict(step_count=namespace.step_count, dry_run=namespace.dry_run),
-    'send_message_to_steps': lambda namespace, tags: dict(
+    'start': lambda namespace, tags: ((), dict()),
+    'stop': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run)),
+    'shutdown': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run)),
+    'send_message_to_steps': lambda namespace, tags: ((), dict(
         message=MESSAGE_TYPE_CONVERSION_MAPPING[namespace.type](namespace.message),
-        dry_run=namespace.dry_run, **tags),
-    'is_running': lambda namespace, tags: dict(),
-    'status': lambda namespace, tags: dict(fields=namespace.fields, states=namespace.state, **tags),
-    'steps_waiting_for_user_input': lambda namespace, tags: dict(**tags),
-    'pause': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'pause_branch': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'unset_pause_on_fail': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'interrupt': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'resume': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'resume_branch': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'list': lambda namespace, tags: dict(**tags),
-    'skip': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'unskip': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'block': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
-    'unblock': lambda namespace, tags: dict(dry_run=namespace.dry_run, **tags),
+        dry_run=namespace.dry_run, **tags)),
+    'list': lambda namespace, tags: ((), dict(**tags)),
+    'status': lambda namespace, tags: ((), dict(fields=namespace.fields, states=namespace.state, **tags)),
+    'steps_waiting_for_user_input': lambda namespace, tags: ((), dict(**tags)),
+    'pause': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'pause_branch': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'interrupt': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'resume': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'next_step': lambda namespace, tags: ((), dict(step_count=namespace.step_count, dry_run=namespace.dry_run)),
+    'resume_branch': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'skip': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'unskip': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'block': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'unblock': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'set_pause_on_fail': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
+    'unset_pause_on_fail': lambda namespace, tags: ((), dict(dry_run=namespace.dry_run, **tags)),
 }
 
 
@@ -285,7 +291,7 @@ def cli_args_for_tag_keys_and_values(tag_keys_and_values):
     A generator that yields a tuple of the form (args, kwargs) which can be passed to ArgumentParser.add_argument.
     """
     return (extract_args_and_kwargs('--{}'.format(key), choices=possible_values, type=type(possible_values[0]))
-            for key, possible_values in tag_keys_and_values.iteritems())
+            for key, possible_values in iteritems(tag_keys_and_values))
 
 
 def get_tags_from_namespace(tag_keys_and_values, namespace):
@@ -374,11 +380,15 @@ def substitute_cli_switches(methods_cli_switch_mapping, substitution_mapping):
                 (('--submit',), dict(dest='dry_run', action='store_false', help=''))],
         }
     """
+    # In Python 3, dict.keys() is a view and not a list. This means that membership can
+    # only be verified for hasheable types, but args_and_kwargs can contain dicts. We
+    # convert substitution_mapping.keys() to a list in order to get around this.
+    substitution_mapping_keys = list(substitution_mapping.keys())
     for method in methods_cli_switch_mapping:
         help_text, args_and_kwargs_list = methods_cli_switch_mapping[method]
         new_args_and_kwargs_list = []
         for args_and_kwargs in args_and_kwargs_list:
-            if args_and_kwargs in substitution_mapping.keys():
+            if args_and_kwargs in substitution_mapping_keys:
                 new_args_and_kwargs_list.extend(substitution_mapping[str(args_and_kwargs)])
             else:
                 new_args_and_kwargs_list.append(args_and_kwargs)
@@ -467,7 +477,7 @@ def make_api_call(namespace, tags, client, parameter_extractor_mapping=PARAMETER
                                        parameters from the given namespace. This mapping is of the form:
                                        {
                                         '<method>': <function/lambda that accepts namespace and tags.
-                                                     Returns a dictionary>,
+                                                     Returns a tuple of the form (<args>, <kwargs>).>,
                                        }
                                        Where:
                                        - '<method>' is the method name (string) of the client object that will be
@@ -480,6 +490,6 @@ def make_api_call(namespace, tags, client, parameter_extractor_mapping=PARAMETER
     Returns:
     The result of the method call.
     """
-    kwargs = parameter_extractor_mapping[namespace.method](namespace, tags)
-    logging.info('Method call: client.{}(**{})'.format(namespace.method, kwargs))
-    getattr(client, namespace.method)(**kwargs)
+    args, kwargs = parameter_extractor_mapping[namespace.method](namespace, tags)
+    logging.info('Method call: client.{}(*{}, **{})'.format(namespace.method, args, kwargs))
+    getattr(client, namespace.method)(*args, **kwargs)

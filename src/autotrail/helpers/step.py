@@ -21,9 +21,10 @@ import string
 from functools import wraps
 from multiprocessing import Process
 from multiprocessing import Queue as ProcessQueue
-from Queue import Empty as QueueEmpty
 from subprocess import Popen, PIPE
 from time import sleep
+
+from six.moves.queue import Empty as QueueEmpty
 
 from autotrail.core.dag import Step
 
@@ -732,7 +733,7 @@ def make_context_attribute_based_templating_function(attribute_name, template, e
         elif notify_user:
             trail_env.output(('Nothing to do since "{attribute_name}" in context has the value: "{value}" and the '
                               'expected value is: "{expected_value}".').format(
-                                attribute_name=attribute_name, value=attribute_value, expected_value=expected_value))
+                                  attribute_name=attribute_name, value=attribute_value, expected_value=expected_value))
     return templating_function
 
 

@@ -12,8 +12,9 @@ limitations under the License.
 
 import unittest
 
-from mock import MagicMock, patch, call
-from StringIO import StringIO
+from mock import MagicMock, patch
+
+from six import StringIO
 
 from autotrail.core.dag import Step
 from autotrail.helpers.io import (
@@ -314,11 +315,11 @@ class TestInteractiveTrail(unittest.TestCase):
         self.mock_generic_printer.assert_called_once_with('shutdown', 'mock_result', self.mock_stdout)
 
     def test_stop(self):
-        self.interactive_trail.stop(interrupt=True)
+        self.interactive_trail.stop(dry_run=False)
 
         (method, printer), kwargs = self.mock_call_trail_client_method.call_args
         self.assertEqual(method, 'stop')
-        self.assertEqual(kwargs, dict(interrupt=True))
+        self.assertEqual(kwargs, dict(dry_run=False))
         printer('mock_result')
         self.mock_affected_steps_printer.assert_called_once_with('stop', 'mock_result', False, self.mock_stdout)
 

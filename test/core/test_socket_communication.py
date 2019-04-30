@@ -12,9 +12,12 @@ limitations under the License.
 
 import unittest
 
-from mock import MagicMock, patch, call
+from mock import MagicMock, patch
 from socket import socket, AF_UNIX, SOCK_STREAM, timeout
-from urllib import quote, unquote
+
+import six
+
+from six.moves.urllib.parse import quote, unquote
 
 from autotrail.core.socket_communication import (socket_write, socket_write_json, socket_read, socket_read_json,
                                                  socket_server_setup, send_request, serve_socket)
@@ -38,8 +41,11 @@ class TestSocketCommunication(unittest.TestCase):
 
         socket_write(mock_socket, 'mock_message')
 
-        mock_socket.makefile.assert_called_once_with('wb')
-        mock_wfile.write.assert_called_once_with('mock_message\n')
+        if six.PY2:
+            mock_socket.makefile.assert_called_once_with('wb')
+        else:
+            mock_socket.makefile.assert_called_once_with('wb', buffering=None)
+        mock_wfile.write.assert_called_once_with(b'mock_message\n')
 
     def test_socket_write_json(self):
         socket_write_patcher = patch('autotrail.core.socket_communication.socket_write')
@@ -57,13 +63,16 @@ class TestSocketCommunication(unittest.TestCase):
     def test_socket_read(self):
         mock_socket = MagicMock()
         mock_rfile = MagicMock()
-        mock_rfile.readline = MagicMock(return_value=' mock_message\n')
+        mock_rfile.readline = MagicMock(return_value=b' mock_message\n')
         mock_rfile.close = MagicMock()
         mock_socket.makefile = MagicMock(return_value=mock_rfile)
 
         request = socket_read(mock_socket)
 
-        mock_socket.makefile.assert_called_once_with('rb')
+        if six.PY2:
+            mock_socket.makefile.assert_called_once_with('rb')
+        else:
+            mock_socket.makefile.assert_called_once_with('rb', buffering=None, newline='\n')
         mock_rfile.readline.assert_called_once_with()
         mock_rfile.close.assert_called_once_with()
         self.assertEqual(request, 'mock_message')

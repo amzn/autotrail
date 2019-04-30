@@ -16,14 +16,6 @@ It inspects the trail run by verifying the responses received from the API calls
 
 This is not an intrusive test at all and therefore doesn't use any mocks or internal mechanisms not available to the
 user.
-
-These tests run much slower compared to the unit tests, therefore, they are not automatically run with brazil-build
-test, which is explicity asked to not include validationtest in its suite.
-
-To run these tests issue the following command:
-brazil-build test -m validationtest
-
-There are 7 tests and they take about 1.5 minutes (total) to run, so please be patient.
 """
 
 import logging
@@ -130,7 +122,7 @@ class AutoTrailValidationTests(unittest.TestCase):
         self.trail_client = TrailClient(self.trail_server.socket_file)
 
     def tearDown(self):
-        self.trail_client.stop(interrupt=True)
+        self.trail_client.stop(dry_run=False)
         self.trail_client.shutdown(dry_run=False)
 
     def check_step_attributes(self, attribute, expected_values, **status_kwargs):
@@ -592,35 +584,6 @@ class AutoTrailValidationTests(unittest.TestCase):
         self.check_affected_steps(affected_steps, ['long_running_action_function'])
 
     def test_stop(self):
-        self.trail_client.start()
-
-        self.wait_till('action_function_a', Step.RUN)
-
-        affected_steps = self.trail_client.stop()
-
-        self.check_affected_steps(affected_steps, [
-            'action_function_b',
-            'action_function_c',
-            'action_function_d',
-            'action_function_e',
-            'action_function_f',
-            'action_function_g',
-        ])
-
-        self.wait_till('action_function_b', Step.BLOCKED)
-        self.wait_till('action_function_e', Step.BLOCKED)
-
-        self.check_step_attributes(StatusField.STATE, {
-            'action_function_a': Step.SUCCESS,
-            'action_function_b': Step.BLOCKED,
-            'action_function_c': Step.TOBLOCK,
-            'action_function_d': Step.TOBLOCK,
-            'action_function_e': Step.BLOCKED,
-            'action_function_f': Step.TOBLOCK,
-            'action_function_g': Step.TOBLOCK,
-        })
-
-    def test_stop_with_interrupt(self):
         # First shutdown the default setup trail.
         self.trail_client.shutdown(dry_run=False)
 
@@ -647,15 +610,15 @@ class AutoTrailValidationTests(unittest.TestCase):
         self.wait_till('long_running_action_function', Step.RUN)
 
         # long_running_action_function is a long running step (5 seconds), so stop the trail with interrupt.
-        affected_steps = self.trail_client.stop(interrupt=True)
+        affected_steps = self.trail_client.stop(dry_run=False)
 
-        self.wait_till('long_running_action_function', Step.INTERRUPTED)
+        self.wait_till('long_running_action_function', Step.BLOCKED)
         self.check_affected_steps(affected_steps, [
-            'action_function_b',
+            'long_running_action_function',
         ])
 
         self.check_step_attributes(StatusField.STATE, {
-            'long_running_action_function': Step.INTERRUPTED,
+            'long_running_action_function': Step.BLOCKED,
             'action_function_b': Step.TOBLOCK,
         })
 

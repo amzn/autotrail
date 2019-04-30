@@ -10,9 +10,10 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the speci
 limitations under the License.
 """
 
+import mock
 import unittest
 
-from mock import MagicMock, patch, call
+from mock import MagicMock, patch
 
 from autotrail.core.dag import Step
 from autotrail.layer1.api import StatusField
@@ -82,7 +83,7 @@ class TestFunctions(unittest.TestCase):
                 history_limit=7)
 
         mock_historian.assert_called_once_with(mock_function, 7)
-        self.assertEqual(mock_result_predicate.mock_calls, [call(mock_history), call(mock_history)])
+        self.assertEqual(mock_result_predicate.mock_calls, [mock.call(mock_history), mock.call(mock_history)])
         mock_pre_processor.assert_called_once_with(mock_history)
         # This should be called only once because we made the pre_processor return None on one instance.
         mock_filtered_handlers.assert_called_once_with(mock_value, mock_filter_handler_pairs)
@@ -140,7 +141,7 @@ class TestFunctions(unittest.TestCase):
                 history_limit=7)
 
         mock_historian.assert_called_once_with(mock_function, 7)
-        self.assertEqual(mock_result_predicate.mock_calls, [call(mock_history), call(mock_history)])
+        self.assertEqual(mock_result_predicate.mock_calls, [mock.call(mock_history), mock.call(mock_history)])
         mock_pre_processor.assert_called_once_with(mock_history)
         # This should be called only once because we made the pre_processor return None on one instance.
         self.assertEqual(mock_filtered_handlers.call_count, 0)

@@ -19,10 +19,10 @@ Import the public facing classes: Trail and Step so that the user of AutoTrail c
 
 # flake8: noqa
 
-from core.dag import Step
-from helpers.context import threadsafe_class
-from helpers.io import InteractiveTrail
-from helpers.step import (
+from .core.dag import Step
+from .helpers.context import threadsafe_class
+from .helpers.io import InteractiveTrail
+from .helpers.step import (
     accepts_context,
     accepts_environment,
     accepts_nothing,
@@ -32,6 +32,6 @@ from helpers.step import (
     make_simple_templating_function,
     make_context_attribute_based_templating_function,
     ShellCommand)
-from layer1.api import StatusField
-from layer2.trail import TrailServer, TrailClient
-from layer2.io import interactive
+from .layer1.api import StatusField
+from .layer2.trail import TrailServer, TrailClient
+from .layer2.io import interactive

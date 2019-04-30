@@ -10,11 +10,13 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the speci
 limitations under the License.
 """
 
+import mock
 import unittest
 
-from mock import MagicMock, patch, call
-from Queue import Empty as QueueEmpty
+from mock import MagicMock, patch
 from subprocess import PIPE
+
+from six.moves.queue import Empty as QueueEmpty
 
 from autotrail.helpers.step import (
     accepts_context,
@@ -436,8 +438,8 @@ class TestShellCommandMethods(unittest.TestCase):
         self.assertEqual(trail_env.output.call_count, 2)
         start_notification = trail_env.output.call_args_list[0]
         end_notification = trail_env.output.call_args_list[1]
-        self.assertEqual(start_notification, call('[Command: mock command] -- Starting.'))
-        self.assertEqual(end_notification, call('mock success message'))
+        self.assertEqual(start_notification, mock.call('[Command: mock command] -- Starting.'))
+        self.assertEqual(end_notification, mock.call('mock success message'))
 
     def test_run_with_failure(self):
         self.shell_command.get_valid_stdout_messages = MagicMock()
@@ -473,8 +475,8 @@ class TestShellCommandMethods(unittest.TestCase):
         self.assertEqual(trail_env.output.call_count, 2)
         start_notification = trail_env.output.call_args_list[0]
         end_notification = trail_env.output.call_args_list[1]
-        self.assertEqual(start_notification, call('[Command: mock command] -- Starting.'))
-        self.assertEqual(end_notification, call('mock failure message'))
+        self.assertEqual(start_notification, mock.call('[Command: mock command] -- Starting.'))
+        self.assertEqual(end_notification, mock.call('mock failure message'))
 
     def test_run_with_no_command(self):
         self.shell_command.get_valid_stdout_messages = MagicMock()

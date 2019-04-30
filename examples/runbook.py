@@ -1,5 +1,3 @@
-#! /apollo/bin/env python
-
 """Copyright 2017-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance with the
@@ -89,5 +87,5 @@ def runbook(n=None):
 
 # Start interactive session
 interactive(globals(), trail=runbook_trail, prompt='Runbook Trail>')
-runbook_interactive.stop(interrupt=True)
+runbook_interactive.stop(dry_run=False)
 runbook_interactive.shutdown(dry_run=False)
