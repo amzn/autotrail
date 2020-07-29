@@ -13,3 +13,20 @@
   limitations under the License.
 
 """
+import code
+import sys
+
+from rlcompleter import readline
+
+
+def interactive(namespace_dict, prompt='AutoTrail> '):
+    """Run an Python REPL with the given namespace objects available.
+
+    :param namespace_dict:  A mapping of names and objects that will be available in the REPL.
+    :param prompt:          The prompt displayed by the REPL.
+    :return:                None
+    """
+    readline.parse_and_bind('tab: complete')
+    sys.ps1 = prompt
+    shell = code.InteractiveConsole(namespace_dict)
+    shell.interact('Welcome to AutoTrail')
